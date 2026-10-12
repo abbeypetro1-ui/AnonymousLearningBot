@@ -1,4 +1,4 @@
-// Study Buddy main code. You don't need to edit this file.
+// LearningAnonymousBot main code. You don't need to edit this file.
 (function () {
   const C = BOT_CONFIG;
   const $ = (id) => document.getElementById(id);
@@ -37,6 +37,7 @@
   // ---------- Setup from config ----------
   document.title = C.name;
   document.documentElement.style.setProperty("--accent", C.themeColor);
+  document.documentElement.style.setProperty("--accent2", C.themeColor2);
   $("botEmoji").textContent = C.emoji;
   $("botName").textContent = C.name;
   $("botTagline").textContent = C.tagline;
@@ -106,6 +107,42 @@
   function scrollDown() {
     const m = $("messages");
     m.scrollTop = m.scrollHeight;
+  }
+
+  // ---------- Copy button (shown under each AI reply) ----------
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      // Older browsers: use a hidden text box instead
+      try {
+        const box = document.createElement("textarea");
+        box.value = text;
+        box.style.position = "fixed";
+        box.style.opacity = "0";
+        document.body.appendChild(box);
+        box.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(box);
+        return ok;
+      } catch (e2) {
+        return false;
+      }
+    }
+  }
+  function addCopyButton(text) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "copy-btn";
+    btn.textContent = "📋 Copy";
+    btn.addEventListener("click", async () => {
+      const ok = await copyText(text);
+      btn.textContent = ok ? "✅ Copied!" : "Couldn't copy";
+      setTimeout(() => { btn.textContent = "📋 Copy"; }, 1800);
+    });
+    $("messages").appendChild(btn);
+    scrollDown();
   }
 
   // ---------- Starter buttons and new chat ----------
@@ -214,6 +251,7 @@
 
       history.push({ role: "model", parts: [{ text: reply }] });
       addBubble("bot", reply);
+      addCopyButton(reply);
     } catch (err) {
       thinking.remove();
       history.pop();
