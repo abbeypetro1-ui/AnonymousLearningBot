@@ -14,19 +14,18 @@ const BOT_CONFIG = {
 
   // The first message the bot shows when the page opens
   welcomeMessage:
-    "Hi! I'm LearningAnonymousBot 🎓 I can make study guides, run fun trivia games, and explain things your way. Paste your class material with the 📚 button, or just ask me anything!",
+    "Hi! I'm LearningAnonymousBot 🎓 I can make study guides, create fun trivia games, and explain things your way. Paste your class material with the 📚 button, or just ask me anything!",
 
   // The three buttons shown under the welcome message
   starterQuestions: [
     "Make me a study guide from my material",
     "Start a fun trivia game!",
-    "Give me study tips for my first semester",
+    "Give me study tips!",
   ],
 
   // The two theme colors (any hex color codes).
-  // The header fades from the first color to the second.
-  themeColor: "#8ED1F0",   // light blue
-  themeColor2: "#A8E6B8",  // light green
+  themeColor: "#8ED1F0",   // light pink
+  themeColor2: "#A8E6B8",  // light blue
 
   // Which Gemini model to use. If you see a "model not found" error, change this.
   model: "gemini-flash-latest",
