@@ -25,7 +25,7 @@ const BOT_CONFIG = {
 
   // The two theme colors (any hex color codes).
   // The header fades from the first color to the second.
-  themeColor: "#8ED1F0",   // light blue
+  themeColor: "#FFB6C1",   // light pink
   themeColor2: "#A8E6B8",  // light green
 
   // Which Gemini model to use. If you see a "model not found" error, change this.
