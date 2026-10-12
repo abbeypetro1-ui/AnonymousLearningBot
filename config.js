@@ -24,7 +24,7 @@ const BOT_CONFIG = {
   ],
 
   // The two theme colors (any hex color codes).
-  themeColor: "#8ED1F0",   // light pink
+  themeColor: "#FFB6C1",   // light pink
   themeColor2: "#A8E6B8",  // light blue
 
   // Which Gemini model to use. If you see a "model not found" error, change this.
