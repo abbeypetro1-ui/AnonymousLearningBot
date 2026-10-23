@@ -13,6 +13,7 @@
   const API_BASE = "https://generativelanguage.googleapis.com/v1beta/models/";
 
   // Notes settings from config.js (with safe defaults)
+  const KB_CONFIGURED = typeof C.useKnowledge === "boolean"; // false = config.js is the old version
   const USE_KB = C.useKnowledge === true;
   const KB_FILE = C.knowledgeFile || "knowledge.md";
   const KB_METHOD = C.searchMethod === "keywords" ? "keywords" : "meaning";
@@ -316,8 +317,27 @@
     }
     return "keyword search for now (add your API key to turn on meaning search)";
   }
+  // Finds the status line. If index.html is the old version, it creates the line itself.
+  function statusElement() {
+    let el = $("kbStatus");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "kbStatus";
+      el.className = "kb-status";
+      el.setAttribute("role", "status");
+      const header = document.querySelector("header.top");
+      if (header && header.parentNode) header.parentNode.insertBefore(el, header.nextSibling);
+    }
+    return el;
+  }
   function renderStatus() {
-    const el = $("kbStatus");
+    const el = statusElement();
+    if (!KB_CONFIGURED) {
+      el.textContent = "⚠️ Your config.js is the old version. Replace it with the new config.js that has the notes settings (useKnowledge, knowledgeFile, searchMethod, topK, embeddingModel, knowledgeRules).";
+      el.classList.add("warn");
+      el.hidden = false;
+      return;
+    }
     if (!USE_KB) { el.hidden = true; return; }
     let text = "";
     let warn = false;
