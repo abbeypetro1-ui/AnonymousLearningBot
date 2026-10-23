@@ -6,9 +6,21 @@
   const KEY_NAME = "studyBuddyApiKey";
   const MATERIAL_NAME = "studyBuddyMaterial";
   const STYLE_NAME = "studyBuddyStyle";
+  const VECTOR_CACHE_NAME = "learningBotNoteVectors";
   const MAX_MATERIAL = 30000; // characters
+  const MAX_NOTE_CHARS = 1500; // longer notes are split into parts
+  const EMBED_BATCH_SIZE = 50; // notes per embedding request
+  const API_BASE = "https://generativelanguage.googleapis.com/v1beta/models/";
 
-  let history = []; // the conversation so far
+  // Notes settings from config.js (with safe defaults)
+  const USE_KB = C.useKnowledge === true;
+  const KB_FILE = C.knowledgeFile || "knowledge.md";
+  const KB_METHOD = C.searchMethod === "keywords" ? "keywords" : "meaning";
+  const KB_TOPK = Math.max(1, parseInt(C.topK, 10) || 3);
+  const EMBED_MODEL = C.embeddingModel || "gemini-embedding-2";
+  const KB_RULES = (C.knowledgeRules || "").trim();
+
+  let history = []; // the conversation so far (plain questions and answers)
   let busy = false;
 
   // ---------- Safe storage helpers (wrapped in try/catch) ----------
@@ -145,6 +157,352 @@
     scrollDown();
   }
 
+  // ==========================================================
+  //  YOUR NOTES (knowledge.md): load, search, and show sources
+  // ==========================================================
+  let notes = [];            // each: { title, part, parts, text, vector }
+  let kbState = "off";       // "loading" | "missing" | "empty" | "ready"
+  let meaningState = "none"; // "none" | "needkey" | "preparing" | "ready" | "failed"
+  let meaningWhy = "";       // why preparing meaning search failed
+  let queryProblem = "";     // why the last question could not use meaning search
+  let fingerprint = "";      // changes whenever knowledge.md changes
+  let kbPromise = Promise.resolve();
+
+  // A small, fast "fingerprint" of a piece of text (cyrb53 hash)
+  function hashText(str) {
+    let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    for (let i = 0; i < str.length; i++) {
+      const ch = str.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761);
+      h2 = Math.imul(h2 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+  }
+
+  // Split one long note at blank lines so each part is about MAX_NOTE_CHARS or less
+  function splitLong(body) {
+    if (body.length <= MAX_NOTE_CHARS) return [body];
+    const paragraphs = body.split(/\n\s*\n/);
+    const parts = [];
+    let current = "";
+    paragraphs.forEach((p) => {
+      const joined = current ? current + "\n\n" + p : p;
+      if (current && joined.length > MAX_NOTE_CHARS) {
+        parts.push(current);
+        current = p;
+      } else {
+        current = joined;
+      }
+    });
+    if (current) parts.push(current);
+    return parts;
+  }
+
+  // Turn the file into notes. Everything above the first "## " line is ignored.
+  function parseNotes(raw) {
+    const text = raw.replace(/^﻿/, "").replace(/\r\n?/g, "\n");
+    const chunks = text.split(/^## /m).slice(1);
+    const result = [];
+    chunks.forEach((chunk) => {
+      const newline = chunk.indexOf("\n");
+      const title = (newline === -1 ? chunk : chunk.slice(0, newline)).trim() || "Untitled note";
+      const body = (newline === -1 ? "" : chunk.slice(newline + 1)).trim();
+      if (!body) return;
+      const parts = splitLong(body);
+      parts.forEach((part, i) => {
+        result.push({ title: title, part: i + 1, parts: parts.length, text: part, vector: null });
+      });
+    });
+    return result;
+  }
+
+  function displayTitle(note) {
+    return note.parts > 1 ? note.title + " (part " + note.part + " of " + note.parts + ")" : note.title;
+  }
+  function docText(note) {
+    return "title: " + note.title + " | text: " + note.text;
+  }
+
+  // ----- Embeddings (turning text into numbers that capture meaning) -----
+  async function embedBatch(texts, key) {
+    const url = API_BASE + encodeURIComponent(EMBED_MODEL) + ":batchEmbedContents";
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({
+        requests: texts.map((t) => ({
+          model: "models/" + EMBED_MODEL,
+          content: { parts: [{ text: t }] },
+        })),
+      }),
+    });
+    if (!response.ok) {
+      const err = new Error("Embedding request failed");
+      err.status = response.status;
+      throw err;
+    }
+    const data = await response.json();
+    const list = data.embeddings || [];
+    if (list.length !== texts.length || !list.every((e) => e && Array.isArray(e.values))) {
+      throw new Error("Unexpected embedding reply");
+    }
+    return list.map((e) => e.values);
+  }
+  async function embedTexts(texts, key) {
+    let vectors = [];
+    for (let i = 0; i < texts.length; i += EMBED_BATCH_SIZE) {
+      const batch = await embedBatch(texts.slice(i, i + EMBED_BATCH_SIZE), key);
+      vectors = vectors.concat(batch);
+    }
+    return vectors;
+  }
+  function embedReason(err) {
+    if (err && err.name === "TypeError") return "no internet";
+    const s = err && err.status;
+    if (s === 400 || s === 403) return "check your API key";
+    if (s === 429) return "rate limit";
+    if (s === 404) return "embedding model not found, check embeddingModel in config.js";
+    if (s >= 500) return "Google server problem";
+    if (s) return "error " + s;
+    return "unexpected reply";
+  }
+
+  function cosine(a, b) {
+    let dot = 0, na = 0, nb = 0;
+    const n = Math.min(a.length, b.length);
+    for (let i = 0; i < n; i++) {
+      dot += a[i] * b[i];
+      na += a[i] * a[i];
+      nb += b[i] * b[i];
+    }
+    return na && nb ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
+  }
+
+  // ----- Saved vectors (so they are only made again when knowledge.md changes) -----
+  function cacheLoad() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(VECTOR_CACHE_NAME) || "null");
+      if (saved && saved.fingerprint === fingerprint && Array.isArray(saved.vectors) &&
+          saved.vectors.length === notes.length) {
+        return saved.vectors;
+      }
+    } catch (e) {}
+    return null;
+  }
+  function cacheSave(vectors) {
+    try {
+      const small = vectors.map((v) => v.map((x) => Math.round(x * 1e6) / 1e6));
+      localStorage.setItem(VECTOR_CACHE_NAME, JSON.stringify({ fingerprint: fingerprint, vectors: small }));
+    } catch (e) {}
+  }
+
+  function vectorsReady() {
+    return notes.length > 0 && notes.every((n) => n.vector);
+  }
+
+  // ----- Status line under the header -----
+  function methodLabel() {
+    if (KB_METHOD === "keywords") return "keyword search";
+    if (vectorsReady()) {
+      return queryProblem
+        ? "keyword search for now (meaning search problem: " + queryProblem + ")"
+        : "meaning search";
+    }
+    if (meaningState === "preparing") return "preparing meaning search…";
+    if (meaningState === "failed") {
+      return "keyword search (meaning search failed: " + meaningWhy + "; reload to try again)";
+    }
+    return "keyword search for now (add your API key to turn on meaning search)";
+  }
+  function renderStatus() {
+    const el = $("kbStatus");
+    if (!USE_KB) { el.hidden = true; return; }
+    let text = "";
+    let warn = false;
+    if (kbState === "loading") {
+      text = "⏳ Loading your notes…";
+    } else if (kbState === "missing") {
+      text = "⚠️ Couldn't find " + KB_FILE + ". Check that it is in the same folder as index.html, then reload.";
+      warn = true;
+    } else if (kbState === "empty") {
+      text = "⚠️ " + KB_FILE + " has no notes. Start each note with a line like: ## Note title";
+      warn = true;
+    } else if (kbState === "ready") {
+      text = "📖 " + notes.length + (notes.length === 1 ? " note" : " notes") + " loaded • " + methodLabel();
+    }
+    el.textContent = text;
+    el.classList.toggle("warn", warn);
+    el.hidden = !text;
+  }
+
+  // ----- Load the notes file, then (if possible) make the embeddings -----
+  async function prepareMeaning() {
+    if (KB_METHOD !== "meaning") { meaningState = "none"; renderStatus(); return; }
+    if (vectorsReady()) { meaningState = "ready"; renderStatus(); return; }
+    const key = storeGet(KEY_NAME);
+    if (!key) { meaningState = "needkey"; renderStatus(); return; }
+
+    meaningState = "preparing";
+    renderStatus();
+    const cached = cacheLoad();
+    if (cached) {
+      notes.forEach((n, i) => { n.vector = cached[i]; });
+      meaningState = "ready";
+      renderStatus();
+      return;
+    }
+    try {
+      const vectors = await embedTexts(notes.map(docText), key);
+      notes.forEach((n, i) => { n.vector = vectors[i]; });
+      cacheSave(vectors);
+      meaningState = "ready";
+    } catch (err) {
+      meaningState = "failed";
+      meaningWhy = embedReason(err);
+    }
+    renderStatus();
+  }
+
+  async function loadKnowledge() {
+    if (!USE_KB) return;
+    try {
+      if (kbState !== "ready") {
+        kbState = "loading";
+        renderStatus();
+        let raw = "";
+        try {
+          const response = await fetch(KB_FILE, { cache: "no-cache" });
+          if (!response.ok) throw new Error("not found");
+          raw = await response.text();
+        } catch (e) {
+          kbState = "missing";
+          renderStatus();
+          return;
+        }
+        notes = parseNotes(raw);
+        if (notes.length === 0) {
+          kbState = "empty";
+          renderStatus();
+          return;
+        }
+        fingerprint = hashText(raw + "|" + EMBED_MODEL + "|" + MAX_NOTE_CHARS);
+        kbState = "ready";
+        queryProblem = "";
+      }
+      renderStatus();
+      await prepareMeaning();
+    } catch (e) {
+      renderStatus(); // never let a notes problem break the chat
+    }
+  }
+  function startKnowledge() {
+    kbPromise = kbPromise.then(loadKnowledge);
+    return kbPromise;
+  }
+
+  // ----- Keyword search -----
+  const STOP_WORDS = new Set(("a an the and or but if of to in on at for with about as is are was were be been am " +
+    "do does did how what when where which who whom why can could should would will shall may might must i me my " +
+    "we our you your it its this that these those there their them they he she his her him from by not no yes so " +
+    "than then too very just into over under again more most some any each other such only own same up down out off").split(" "));
+
+  function stem(word) {
+    return word.length > 3 && word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word;
+  }
+  function wordsOf(text) {
+    return (text.toLowerCase().match(/[a-z0-9']+/g) || [])
+      .map((w) => w.replace(/'s$/, "").replace(/'/g, ""))
+      .filter((w) => (w.length > 1 || /[0-9]/.test(w)) && !STOP_WORDS.has(w))
+      .map(stem);
+  }
+  function keywordRank(question) {
+    const terms = Array.from(new Set(wordsOf(question)));
+    if (terms.length === 0) return [];
+    const ranked = notes.map((note) => {
+      if (!note.titleWords) {
+        note.titleWords = new Set(wordsOf(note.title));
+        note.textWords = new Set(wordsOf(note.text));
+      }
+      let points = 0;
+      terms.forEach((t) => {
+        if (note.titleWords.has(t)) points += 2;
+        else if (note.textWords.has(t)) points += 1;
+      });
+      return { note: note, score: points / (2 * terms.length) };
+    });
+    return ranked.filter((r) => r.score > 0).sort((a, b) => b.score - a.score);
+  }
+
+  // ----- Pick the best notes for a question -----
+  async function findNotes(question, key) {
+    if (!USE_KB || notes.length === 0) return null;
+    let ranked = null;
+    let method = "keywords";
+    if (KB_METHOD === "meaning" && vectorsReady()) {
+      try {
+        const vectors = await embedTexts(["task: search result | query: " + question], key);
+        ranked = notes
+          .map((note) => ({ note: note, score: cosine(vectors[0], note.vector) }))
+          .sort((a, b) => b.score - a.score);
+        method = "meaning";
+        if (queryProblem) { queryProblem = ""; renderStatus(); }
+      } catch (err) {
+        queryProblem = embedReason(err); // fall back to keywords for this question
+        renderStatus();
+      }
+    }
+    if (!ranked) ranked = keywordRank(question);
+    return { method: method, items: ranked.slice(0, KB_TOPK) };
+  }
+
+  // The message Gemini receives: the notes, numbered, then the question
+  function buildNotesMessage(question, items) {
+    let out = "NOTES:\n";
+    if (items.length === 0) out += "(No matching notes were found.)\n";
+    items.forEach((item, i) => {
+      out += "\n[" + (i + 1) + "] " + displayTitle(item.note) + "\n" + item.note.text + "\n";
+    });
+    return out + "\nQUESTION: " + question;
+  }
+
+  // ----- "Sources" section under each reply -----
+  function snippetOf(text) {
+    const flat = text.replace(/\s+/g, " ").trim();
+    if (flat.length <= 160) return flat;
+    return flat.slice(0, 160).replace(/\s+\S*$/, "") + "…";
+  }
+  function addSources(found) {
+    const details = document.createElement("details");
+    details.className = "sources";
+    const summary = document.createElement("summary");
+    summary.textContent = found.items.length
+      ? "Sources (" + found.items.length + ")"
+      : "Sources (no matching notes)";
+    details.appendChild(summary);
+    found.items.forEach((item, i) => {
+      const box = document.createElement("div");
+      box.className = "source-item";
+      const title = document.createElement("span");
+      title.className = "source-title";
+      title.textContent = "[" + (i + 1) + "] " + displayTitle(item.note);
+      const score = document.createElement("span");
+      score.className = "source-score";
+      score.textContent = "score " + item.score.toFixed(2) +
+        (found.method === "meaning" ? " (meaning)" : " (keywords)");
+      const snippet = document.createElement("p");
+      snippet.className = "source-snippet";
+      snippet.textContent = snippetOf(item.note.text);
+      box.appendChild(title);
+      box.appendChild(score);
+      box.appendChild(snippet);
+      details.appendChild(box);
+    });
+    $("messages").appendChild(details);
+    scrollDown();
+  }
+
   // ---------- Starter buttons and new chat ----------
   function showStarters() {
     const box = $("starters");
@@ -166,8 +524,9 @@
   }
 
   // ---------- Build the system instructions ----------
-  function buildSystemText() {
+  function buildSystemText(useNotes) {
     let text = C.systemInstructions;
+    if (useNotes && KB_RULES) text += "\n\n" + KB_RULES;
     const styleIndex = parseInt($("styleSelect").value, 10) || 0;
     text += "\n\nStyle note: " + C.learningStyles[styleIndex].instruction;
     const material = storeGet(MATERIAL_NAME);
@@ -212,8 +571,19 @@
     try {
       if (navigator.onLine === false) throw new TypeError("offline");
 
-      const url = "https://generativelanguage.googleapis.com/v1beta/models/" +
-        encodeURIComponent(C.model) + ":generateContent";
+      // Wait for the notes to finish loading, then find the best ones
+      await kbPromise;
+      const found = await findNotes(text, key);
+
+      // The saved history keeps the plain question. Only this request gets the notes.
+      let contents = history;
+      if (found) {
+        contents = history.slice(0, -1).concat([
+          { role: "user", parts: [{ text: buildNotesMessage(text, found.items) }] },
+        ]);
+      }
+
+      const url = API_BASE + encodeURIComponent(C.model) + ":generateContent";
 
       const response = await fetch(url, {
         method: "POST",
@@ -222,8 +592,8 @@
           "x-goog-api-key": key,
         },
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: buildSystemText() }] },
-          contents: history,
+          systemInstruction: { parts: [{ text: buildSystemText(!!found) }] },
+          contents: contents,
         }),
       });
 
@@ -252,6 +622,7 @@
       history.push({ role: "model", parts: [{ text: reply }] });
       addBubble("bot", reply);
       addCopyButton(reply);
+      if (found) addSources(found);
     } catch (err) {
       thinking.remove();
       history.pop();
@@ -289,7 +660,10 @@
   $("keyCancel").addEventListener("click", () => $("keyDialog").close());
   $("keySave").addEventListener("click", () => {
     const value = $("keyInput").value.trim();
-    if (value) storeSet(KEY_NAME, value, $("rememberKey").checked);
+    if (value) {
+      storeSet(KEY_NAME, value, $("rememberKey").checked);
+      startKnowledge(); // a key is saved, so (re)try preparing meaning search
+    }
     $("keyDialog").close();
   });
   $("keyRemove").addEventListener("click", () => {
@@ -321,4 +695,6 @@
 
   // ---------- Start ----------
   newChat();
+  renderStatus();
+  startKnowledge();
 })();
