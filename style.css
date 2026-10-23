@@ -1,37 +1,47 @@
 /* Colors live in variables so dark mode and your theme colors are easy to change. */
 :root {
-  --accent: #8ED1F0;   /* light blue (replaced by themeColor from config.js) */
-  --accent2: #A8E6B8;  /* light green (replaced by themeColor2 from config.js) */
-  --on-accent: #16323f; /* dark text shown on top of the light colors */
-  --link: #2A7BA6;      /* darker blue for small text and outlines */
-  --bg: #f4f9fb;
-  --panel: #ffffff;
-  --text: #1d2a30;
-  --muted: #5e6f77;
-  --border: #d5e4ea;
-  --bot-bubble: #f0f8f4;
+  --accent: #9ED4F5;    /* light blue (replaced by themeColor from config.js) */
+  --accent2: #F9BBD6;   /* light pink (replaced by themeColor2 from config.js) */
+  --on-accent: #1b2f5e; /* dark blue text shown on top of the light colors */
+  --link: #2c4a8a;      /* dark blue for small text and outlines */
+  --page-bg: linear-gradient(135deg, #cdeafc 0%, #fbd5e5 100%);
+  --bg: #f7fbff;
+  --panel: rgba(255, 255, 255, 0.6);
+  --text: #1b2f5e;
+  --muted: #5a6b8c;
+  --border: rgba(27, 47, 94, 0.18);
+  --bot-bubble: #1e3a6e; /* dark blue response bubbles */
+  --bot-text: #ffffff;
+  --font-body: "Patrick Hand", "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive;
+  --font-title: "Caveat", "Patrick Hand", "Segoe Print", "Comic Sans MS", cursive;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --link: #8ED1F0;
-    --bg: #12181c;
-    --panel: #1b2328;
-    --text: #e8f0f3;
-    --muted: #9fb0b8;
-    --border: #2e3b42;
-    --bot-bubble: #243038;
+    --link: #9ED4F5;
+    --page-bg: linear-gradient(135deg, #16223a 0%, #3a2238 100%);
+    --bg: #1a2233;
+    --panel: rgba(24, 32, 48, 0.82);
+    --text: #eaf1ff;
+    --muted: #a9b8d6;
+    --border: rgba(255, 255, 255, 0.18);
+    --bot-bubble: #2a4a86;
   }
 }
 
 * { box-sizing: border-box; }
 
-html, body {
+[hidden] { display: none !important; }
+
+html { height: 100%; }
+
+body {
   height: 100%;
   margin: 0;
-  background: var(--bg);
+  background: var(--page-bg) fixed;
   color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-body);
+  font-size: 18px;
 }
 
 .sr-only {
@@ -48,6 +58,7 @@ html, body {
   max-width: 760px;
   margin: 0 auto;
   background: var(--panel);
+  backdrop-filter: blur(6px);
   border-left: 1px solid var(--border);
   border-right: 1px solid var(--border);
 }
@@ -64,24 +75,47 @@ html, body {
 }
 
 .brand { display: flex; align-items: center; gap: 10px; }
-.emoji { font-size: 28px; }
-.top h1 { margin: 0; font-size: 18px; }
-.top p { margin: 0; font-size: 12px; opacity: 0.85; }
+.emoji { font-size: 30px; }
+.top h1 {
+  margin: 0;
+  font-family: var(--font-title);
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+}
+.top p { margin: 0; font-size: 15px; opacity: 0.9; }
 
 .actions { display: flex; flex-wrap: wrap; gap: 6px; }
 
 .top button, .top select {
   font: inherit;
-  font-size: 13px;
+  font-size: 16px;
   color: var(--on-accent);
-  background: rgba(255, 255, 255, 0.55);
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  border-radius: 8px;
-  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(27, 47, 94, 0.25);
+  border-radius: 10px;
+  padding: 5px 10px;
   cursor: pointer;
 }
-.top select option { color: #1d2a30; background: #ffffff; }
-.top button:hover { background: rgba(255, 255, 255, 0.85); }
+.top select option { color: #1b2f5e; background: #ffffff; }
+.top button:hover { background: rgba(255, 255, 255, 0.9); }
+
+/* Status line under the header: "12 notes loaded • meaning search" */
+.kb-status {
+  padding: 5px 14px;
+  font-size: 16px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.45);
+  border-bottom: 1px solid var(--border);
+}
+.kb-status.warn {
+  color: #6b4a00;
+  background: #fff4d6;
+}
+@media (prefers-color-scheme: dark) {
+  .kb-status { background: rgba(255, 255, 255, 0.06); }
+  .kb-status.warn { color: #ffe2a0; background: #3d3112; }
+}
 
 .messages {
   flex: 1;
@@ -95,23 +129,26 @@ html, body {
 .bubble {
   max-width: 85%;
   padding: 10px 14px;
-  border-radius: 16px;
-  line-height: 1.45;
+  border-radius: 18px;
+  font-size: 19px;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 .bubble p { margin: 0 0 8px; }
 .bubble p:last-child, .bubble ul:last-child { margin-bottom: 0; }
 .bubble ul { margin: 0 0 8px; padding-left: 20px; }
 
+/* AI replies: dark blue bubbles with white handwriting */
 .bubble.bot {
   align-self: flex-start;
   background: var(--bot-bubble);
-  border: 1px solid var(--border);
+  color: var(--bot-text);
   border-bottom-left-radius: 4px;
 }
+/* Student messages: light colored bubbles */
 .bubble.user {
   align-self: flex-end;
-  background: var(--accent);
+  background: var(--accent2);
   color: var(--on-accent);
   border-bottom-right-radius: 4px;
 }
@@ -125,11 +162,57 @@ html, body {
   .bubble.error { background: #3a1d1b; color: #ffb4ab; border-color: #6b2a25; }
 }
 
+/* Copy button under each AI reply */
+.copy-btn {
+  align-self: flex-start;
+  margin: -4px 0 4px 6px;
+  font: inherit;
+  font-size: 15px;
+  color: var(--link);
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 12px;
+  cursor: pointer;
+}
+.copy-btn:hover { background: var(--accent2); color: var(--on-accent); }
+@media (prefers-color-scheme: dark) {
+  .copy-btn { background: rgba(255, 255, 255, 0.08); }
+}
+
+/* "Sources" section under each AI reply (click to open) */
+.sources {
+  align-self: flex-start;
+  max-width: 92%;
+  margin: -2px 0 6px 6px;
+  font-size: 16px;
+  color: var(--text);
+}
+.sources summary {
+  cursor: pointer;
+  color: var(--link);
+  font-size: 16px;
+}
+.source-item {
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.55);
+  border-left: 3px solid var(--accent2);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.source-title { font-weight: 700; }
+.source-score { color: var(--muted); font-size: 15px; margin-left: 6px; }
+.source-snippet { margin: 2px 0 0; color: var(--muted); }
+@media (prefers-color-scheme: dark) {
+  .source-item { background: rgba(255, 255, 255, 0.08); }
+}
+
 /* "Thinking" animation: three bouncing dots */
 .dots { display: inline-flex; gap: 5px; padding: 4px 0; }
 .dots span {
   width: 8px; height: 8px;
-  background: var(--muted);
+  background: #cfe3ff;
   border-radius: 50%;
   animation: bounce 1.2s infinite ease-in-out;
 }
@@ -148,12 +231,12 @@ html, body {
 }
 .starters button {
   font: inherit;
-  font-size: 14px;
+  font-size: 17px;
   color: var(--link);
-  background: transparent;
-  border: 1px solid var(--accent);
+  background: rgba(255, 255, 255, 0.5);
+  border: 1.5px solid var(--accent2);
   border-radius: 999px;
-  padding: 7px 14px;
+  padding: 6px 14px;
   cursor: pointer;
 }
 .starters button:hover { background: var(--accent2); color: var(--on-accent); }
@@ -169,19 +252,21 @@ html, body {
   resize: none;
   max-height: 140px;
   font: inherit;
-  padding: 10px 12px;
+  font-size: 18px;
+  padding: 9px 12px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--bg);
   color: var(--text);
 }
 .send, dialog button {
   font: inherit;
+  font-size: 18px;
   color: var(--on-accent);
   background: linear-gradient(135deg, var(--accent), var(--accent2));
   border: none;
-  border-radius: 12px;
-  padding: 0 18px;
+  border-radius: 14px;
+  padding: 0 20px;
   cursor: pointer;
 }
 .send:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -189,26 +274,31 @@ html, body {
 dialog {
   width: min(92vw, 480px);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--panel);
+  border-radius: 16px;
+  background: var(--bg);
   color: var(--text);
   padding: 18px;
+  font-family: var(--font-body);
 }
-dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
-dialog h2 { margin-top: 0; }
-dialog p { color: var(--muted); font-size: 14px; }
+dialog::backdrop { background: rgba(20, 30, 60, 0.5); }
+dialog h2 {
+  margin-top: 0;
+  font-family: var(--font-title);
+  font-size: 30px;
+}
+dialog p { color: var(--muted); font-size: 17px; }
 dialog input[type="password"], dialog textarea {
   width: 100%;
   font: inherit;
   padding: 10px;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg);
+  border-radius: 12px;
+  background: var(--panel);
   color: var(--text);
 }
-.check { display: block; margin: 10px 0; font-size: 14px; }
+.check { display: block; margin: 10px 0; font-size: 17px; }
 .dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
-dialog button { padding: 9px 16px; }
+dialog button { padding: 8px 16px; }
 dialog button.secondary {
   background: transparent;
   color: var(--text);
@@ -217,5 +307,5 @@ dialog button.secondary {
 
 @media (max-width: 520px) {
   .bubble { max-width: 92%; }
-  .top h1 { font-size: 16px; }
+  .top h1 { font-size: 28px; }
 }
