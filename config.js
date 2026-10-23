@@ -59,4 +59,36 @@ Rules:
     { label: "📖 Reading/Writing", instruction: "The student learns by reading and writing. Use clear written summaries, definitions, outlines, and suggest rewriting notes in their own words." },
     { label: "🛠️ Hands-on", instruction: "The student learns by doing. Use real-world examples, practice problems, quick experiments, and step-by-step activities." },
   ],
+
+  // ==========================================================
+  //  YOUR NOTES (KNOWLEDGE FILE) SETTINGS
+  //  These make the bot answer from the notes in knowledge.md.
+  // ==========================================================
+
+  // true = the bot looks in your notes before answering.
+  // false = the bot works exactly like before, without your notes.
+  useKnowledge: true,
+
+  // The name of your notes file. It must be in the same folder as index.html.
+  // Inside it, every note starts with a line like:  ## Note title
+  knowledgeFile: "knowledge.md",
+
+  // How the bot finds the right notes for a question:
+  //   "meaning"  = finds notes that mean the same thing as the question (smarter).
+  //                Needs your API key. If it fails, the bot switches to keywords by itself.
+  //   "keywords" = finds notes that share words with the question (simple, no setup).
+  searchMethod: "meaning",
+
+  // How many notes to send along with each question. 3 is a good number.
+  topK: 3,
+
+  // The Google model that turns text into numbers for "meaning" search.
+  // Only change this if you see an "embedding model not found" message.
+  embeddingModel: "gemini-embedding-2",
+
+  // Extra rules added to the bot's instructions whenever your notes are used.
+  knowledgeRules: `
+You will receive NOTES from my knowledge file along with each question.
+If the notes answer the question, base your answer on them and cite the note numbers like [1]. If they don't, begin with 'I couldn't find that in my notes.' Never invent facts, dates, rules or policies that are not in the notes.
+`,
 };
