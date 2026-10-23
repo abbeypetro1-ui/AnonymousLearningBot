@@ -4,6 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>LearningAnonymousBot</title>
+
+  <!-- Handwriting fonts from Google Fonts (the page still works without them) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Patrick+Hand&display=swap" rel="stylesheet" />
+
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -26,6 +32,9 @@
         <button id="newChatBtn" type="button">New chat</button>
       </div>
     </header>
+
+    <!-- Shows how many notes are loaded (filled in by script.js) -->
+    <div id="kbStatus" class="kb-status" role="status" hidden></div>
 
     <main id="messages" class="messages" aria-live="polite"></main>
 
