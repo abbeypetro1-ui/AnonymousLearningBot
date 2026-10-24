@@ -77,7 +77,7 @@ Rules:
   //   "meaning"  = finds notes that mean the same thing as the question (smarter).
   //                Needs your API key. If it fails, the bot switches to keywords by itself.
   //   "keywords" = finds notes that share words with the question (simple, no setup).
-  searchMethod: "meaning",
+  searchMethod: "keywords",
 
   // How many notes to send along with each question. 3 is a good number.
   topK: 3,
