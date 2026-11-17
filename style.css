@@ -117,6 +117,75 @@ body {
   .kb-status.warn { color: #ffe2a0; background: #3d3112; }
 }
 
+/* Study timer under the header */
+.timer-bar {
+  padding: 6px 14px 8px;
+  background: rgba(255, 255, 255, 0.5);
+  border-bottom: 1px solid var(--border);
+}
+.timer-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.timer-clock {
+  min-width: 4.6ch;
+  font-family: var(--font-title);
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.timer-bar.running .timer-clock { color: var(--link); }
+.timer-goal {
+  flex: 1 1 150px;
+  font-size: 17px;
+  color: var(--muted);
+}
+.timer-bar.done .timer-goal { color: var(--text); font-weight: 700; }
+.timer-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+.timer-btn {
+  font: inherit;
+  font-size: 16px;
+  color: var(--on-accent);
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  border: none;
+  border-radius: 10px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+.timer-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.timer-progress {
+  height: 8px;
+  margin-top: 6px;
+  background: rgba(27, 47, 94, 0.14);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.timer-fill {
+  width: 0;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+.timer-bar.done .timer-fill { background: #5cc28a; }
+@media (prefers-color-scheme: dark) {
+  .timer-bar { background: rgba(255, 255, 255, 0.06); }
+  .timer-progress { background: rgba(255, 255, 255, 0.16); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .timer-fill { transition: none; }
+}
+
+/* Goal pop-up */
+.goal-presets { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 4px; }
+.goal-error { color: #8a1c14; margin: 0 0 6px; }
+@media (prefers-color-scheme: dark) {
+  .goal-error { color: #ffb4ab; }
+}
+
 .messages {
   flex: 1;
   overflow-y: auto;
@@ -287,7 +356,7 @@ dialog h2 {
   font-size: 30px;
 }
 dialog p { color: var(--muted); font-size: 17px; }
-dialog input[type="password"], dialog textarea {
+dialog input[type="password"], dialog input[type="number"], dialog textarea {
   width: 100%;
   font: inherit;
   padding: 10px;
