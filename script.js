@@ -713,7 +713,270 @@
     $("materialInput").value = "";
   });
 
+  // ==========================================================
+  //  STUDY TIMER: track study time and set a goal
+  //  Everything is saved only in this browser (localStorage).
+  // ==========================================================
+  const USE_TIMER = C.useTimer !== false; // on unless config.js says false
+  const TIMER_SAVE_NAME = "learningBotTimer";
+  const MAX_GOAL_MIN = 600;
+  const GOAL_PRESETS = (Array.isArray(C.timerGoalPresets) ? C.timerGoalPresets : [15, 25, 45, 60])
+    .map((n) => Math.round(Number(n)))
+    .filter((n) => n >= 1 && n <= MAX_GOAL_MIN);
+  const GOAL_REACHED_TEXT = C.timerGoalReachedMessage ||
+    "🎉 You reached your {minutes}-minute study goal! Great work. Take a short break, or keep going!";
+
+  let timerAccumMs = 0;        // study time already counted before the latest start
+  let timerStartedAt = null;   // when the timer was last started (null = paused)
+  let timerGoalMin = 0;        // goal in minutes (0 = no goal)
+  let timerCelebrated = false; // true once the "goal reached" message was shown
+  let timerDay = todayKey();   // the day the counted study time belongs to
+  let timerInterval = null;
+  let timerLastSave = 0;
+  let timerResetTimeout = null;
+
+  function cleanGoal(n) {
+    n = Math.round(Number(n));
+    return n >= 1 && n <= MAX_GOAL_MIN ? n : 0;
+  }
+  function todayKey() {
+    const d = new Date();
+    return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+  }
+  // Time is measured with clock timestamps, so it stays correct even if the tab is in the background
+  function timerElapsed() {
+    return timerAccumMs + (timerStartedAt === null ? 0 : Math.max(0, Date.now() - timerStartedAt));
+  }
+  function formatClock(ms) {
+    const total = Math.floor(ms / 1000);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    const two = (n) => String(n).padStart(2, "0");
+    return h > 0 ? h + ":" + two(m) + ":" + two(s) : two(m) + ":" + two(s);
+  }
+
+  function timerSave() {
+    timerLastSave = Date.now();
+    try {
+      localStorage.setItem(TIMER_SAVE_NAME, JSON.stringify({
+        day: timerDay,
+        accumMs: Math.round(timerElapsed()),
+        goalMin: timerGoalMin,
+        celebrated: timerCelebrated,
+      }));
+    } catch (e) {}
+  }
+  function timerLoad() {
+    timerGoalMin = cleanGoal(C.timerDefaultGoalMinutes);
+    try {
+      const saved = JSON.parse(localStorage.getItem(TIMER_SAVE_NAME) || "null");
+      if (saved && typeof saved === "object") {
+        // The goal is remembered. The study time starts fresh each new day.
+        if (typeof saved.goalMin === "number") timerGoalMin = cleanGoal(saved.goalMin);
+        if (saved.day === todayKey()) {
+          timerAccumMs = Math.max(0, Number(saved.accumMs) || 0);
+          timerCelebrated = saved.celebrated === true;
+        }
+      }
+    } catch (e) {}
+    timerDay = todayKey();
+    // The timer always comes back paused, so closed-tab time is never counted
+  }
+  // A paused timer from an earlier day starts fresh when the student comes back to the tab
+  function timerNewDayCheck() {
+    if (timerStartedAt === null && timerDay !== todayKey()) {
+      timerAccumMs = 0;
+      timerCelebrated = false;
+      timerDay = todayKey();
+      timerSave();
+    }
+  }
+
+  function buildTimerUI() {
+    const bar = document.createElement("section");
+    bar.id = "timerBar";
+    bar.className = "timer-bar";
+    bar.setAttribute("aria-label", "Study timer");
+    bar.innerHTML =
+      '<div class="timer-row">' +
+        '<span id="timerClock" class="timer-clock" role="timer">00:00</span>' +
+        '<span id="timerGoalText" class="timer-goal"></span>' +
+        '<span class="timer-buttons">' +
+          '<button id="timerToggle" type="button" class="timer-btn">▶ Start</button>' +
+          '<button id="timerReset" type="button" class="timer-btn">↺ Reset</button>' +
+          '<button id="timerGoalBtn" type="button" class="timer-btn">🎯 Goal</button>' +
+        '</span>' +
+      '</div>' +
+      '<div id="timerProgress" class="timer-progress" role="progressbar" aria-label="Progress toward study goal" ' +
+        'aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><div id="timerFill" class="timer-fill"></div></div>' +
+      '<div id="timerAnnounce" class="sr-only" role="status"></div>';
+    const header = document.querySelector("header.top");
+    if (header) header.insertAdjacentElement("afterend", bar);
+    else document.body.insertBefore(bar, document.body.firstChild);
+
+    const dialog = document.createElement("dialog");
+    dialog.id = "goalDialog";
+    dialog.innerHTML =
+      '<h2>Study goal</h2>' +
+      '<p>How many minutes do you want to study each day? Your study time starts fresh every day. ' +
+        'Everything stays on this device.</p>' +
+      '<div id="goalPresets" class="goal-presets"></div>' +
+      '<label class="check">Or type your own (minutes): ' +
+        '<input id="goalInput" type="number" min="1" max="' + MAX_GOAL_MIN + '" step="1" inputmode="numeric" />' +
+      '</label>' +
+      '<p id="goalError" class="goal-error" role="alert" hidden></p>' +
+      '<div class="dialog-buttons">' +
+        '<button id="goalClear" type="button" class="secondary">No goal</button>' +
+        '<button id="goalCancel" type="button" class="secondary">Cancel</button>' +
+        '<button id="goalSave" type="button">Save</button>' +
+      '</div>';
+    document.body.appendChild(dialog);
+  }
+
+  function renderTimer() {
+    const elapsed = timerElapsed();
+    const running = timerStartedAt !== null;
+    $("timerClock").textContent = formatClock(elapsed);
+    $("timerToggle").textContent = running ? "⏸ Pause" : (elapsed > 0 ? "▶ Resume" : "▶ Start");
+    $("timerBar").classList.toggle("running", running);
+    $("timerReset").disabled = elapsed === 0 && !running;
+
+    const progress = $("timerProgress");
+    if (timerGoalMin > 0) {
+      const goalMs = timerGoalMin * 60000;
+      const done = elapsed >= goalMs;
+      const pct = Math.min(100, Math.floor((elapsed / goalMs) * 100));
+      const left = Math.ceil((goalMs - elapsed) / 60000);
+      $("timerGoalText").textContent = done
+        ? "🎉 Goal reached! (" + timerGoalMin + " min)"
+        : "Goal: " + timerGoalMin + " min • " + left + " min left";
+      $("timerFill").style.width = pct + "%";
+      progress.setAttribute("aria-valuenow", String(pct));
+      progress.hidden = false;
+      $("timerBar").classList.toggle("done", done);
+    } else {
+      $("timerGoalText").textContent = "No goal set";
+      progress.hidden = true;
+      $("timerBar").classList.remove("done");
+    }
+    document.title = running ? formatClock(elapsed) + " ⏱️ " + C.name : C.name;
+  }
+
+  function checkGoalReached() {
+    if (timerGoalMin > 0 && !timerCelebrated && timerElapsed() >= timerGoalMin * 60000) {
+      timerCelebrated = true;
+      timerSave();
+      const message = GOAL_REACHED_TEXT.split("{minutes}").join(String(timerGoalMin));
+      addBubble("bot", message); // shown in the chat only, never sent to Gemini
+      $("timerAnnounce").textContent = message;
+    }
+  }
+
+  function timerTick() {
+    renderTimer();
+    checkGoalReached();
+    if (timerStartedAt !== null && Date.now() - timerLastSave >= 10000) timerSave();
+  }
+
+  function toggleTimer() {
+    if (timerStartedAt === null) {
+      timerStartedAt = Date.now();
+      if (!timerInterval) timerInterval = setInterval(timerTick, 250);
+    } else {
+      timerAccumMs += Math.max(0, Date.now() - timerStartedAt);
+      timerStartedAt = null;
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+    checkGoalReached();
+    timerSave();
+    renderTimer();
+  }
+
+  // Reset needs two taps in a row, so it can't be pressed by accident
+  function resetTimer() {
+    const button = $("timerReset");
+    if (!timerResetTimeout) {
+      button.textContent = "Tap again to reset";
+      timerResetTimeout = setTimeout(() => {
+        timerResetTimeout = null;
+        button.textContent = "↺ Reset";
+      }, 3000);
+      return;
+    }
+    clearTimeout(timerResetTimeout);
+    timerResetTimeout = null;
+    button.textContent = "↺ Reset";
+    clearInterval(timerInterval);
+    timerInterval = null;
+    timerAccumMs = 0;
+    timerStartedAt = null;
+    timerCelebrated = false;
+    timerSave();
+    renderTimer();
+  }
+
+  function setGoal(minutes) {
+    timerGoalMin = cleanGoal(minutes);
+    // If the student has already studied that long, don't announce it again
+    timerCelebrated = timerGoalMin > 0 && timerElapsed() >= timerGoalMin * 60000;
+    timerSave();
+    renderTimer();
+  }
+
+  function openGoalDialog() {
+    $("goalInput").value = timerGoalMin > 0 ? timerGoalMin : "";
+    $("goalError").hidden = true;
+    $("goalDialog").showModal();
+  }
+
+  function initTimer() {
+    if (!USE_TIMER) return;
+    timerLoad();
+    buildTimerUI();
+
+    GOAL_PRESETS.forEach((minutes) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "secondary";
+      b.textContent = minutes + " min";
+      b.addEventListener("click", () => { setGoal(minutes); $("goalDialog").close(); });
+      $("goalPresets").appendChild(b);
+    });
+
+    $("timerToggle").addEventListener("click", toggleTimer);
+    $("timerReset").addEventListener("click", resetTimer);
+    $("timerGoalBtn").addEventListener("click", openGoalDialog);
+    $("goalCancel").addEventListener("click", () => $("goalDialog").close());
+    $("goalClear").addEventListener("click", () => { setGoal(0); $("goalDialog").close(); });
+    function saveGoalFromInput() {
+      const minutes = Number($("goalInput").value);
+      if (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_GOAL_MIN) {
+        $("goalError").textContent = "Please type a whole number from 1 to " + MAX_GOAL_MIN + ".";
+        $("goalError").hidden = false;
+        return;
+      }
+      setGoal(minutes);
+      $("goalDialog").close();
+    }
+    $("goalSave").addEventListener("click", saveGoalFromInput);
+    $("goalInput").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); saveGoalFromInput(); }
+    });
+
+    // Catch up right away when the student comes back to this tab, and save when leaving
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") { timerNewDayCheck(); timerTick(); }
+      else timerSave();
+    });
+    window.addEventListener("pagehide", timerSave);
+
+    renderTimer();
+  }
+
   // ---------- Start ----------
+  initTimer();
   newChat();
   renderStatus();
   startKnowledge();
