@@ -77,7 +77,7 @@ Rules:
   //   "meaning"  = finds notes that mean the same thing as the question (smarter).
   //                Needs your API key. If it fails, the bot switches to keywords by itself.
   //   "keywords" = finds notes that share words with the question (simple, no setup).
-  searchMethod: "keywords",
+  searchMethod: "meaning",
 
   // How many notes to send along with each question. 3 is a good number.
   topK: 3,
@@ -91,4 +91,27 @@ Rules:
 You will receive NOTES from my knowledge file along with each question.
 If the notes answer the question, base your answer on them and cite the note numbers like [1]. If they don't, begin with 'I couldn't find that in my notes.' Never invent facts, dates, rules or policies that are not in the notes.
 `,
+
+  // ==========================================================
+  //  STUDY TIMER SETTINGS
+  //  A timer under the header where students track how long
+  //  they have studied and set a goal. Everything stays on
+  //  the student's own device. Nobody else can see it.
+  // ==========================================================
+
+  // true = show the study timer. false = hide it.
+  useTimer: true,
+
+  // The quick-pick goal buttons (in minutes) in the "Goal" pop-up.
+  // Use whole numbers from 1 to 600, separated by commas.
+  timerGoalPresets: [15, 25, 45, 60],
+
+  // A goal (in minutes) that every new student starts with.
+  // 0 means no goal until the student sets one.
+  timerDefaultGoalMinutes: 0,
+
+  // The message shown in the chat when the student reaches their goal.
+  // Write {minutes} where the goal number should appear.
+  timerGoalReachedMessage:
+    "🎉 You reached your {minutes}-minute study goal! Great work. Take a short break, or keep going!",
 };
